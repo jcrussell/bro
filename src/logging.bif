@@ -96,6 +96,18 @@ const set_separator: string;
 const empty_field: string;
 const unset_field: string;
 
+# Options for the SQLite writer
+
+module LogMySQL;
+
+const set_separator: string;
+const empty_field: string;
+const unset_field: string;
+const db_host: string;
+const db_name: string;
+const db_user: string;
+const db_pass: string;
+
 # Options for the ElasticSearch writer.
 
 module LogElasticSearch;

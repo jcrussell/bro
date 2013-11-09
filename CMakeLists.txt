@@ -153,6 +153,15 @@ if (NOT DISABLE_ELASTICSEARCH AND LIBCURL_FOUND)
   list(APPEND OPTLIBS ${LibCURL_LIBRARIES})
 endif()
 
+set(USE_MYSQL false)
+find_package(LibMySQL)
+
+if (NOT DISABLE_MYSQL AND LIBMYSQL_FOUND)
+  set(USE_MYSQL true)
+  include_directories(BEFORE ${LibMYSQL_INCLUDE_DIR})
+  list(APPEND OPTLIBS ${LibMYSQL_LIBRARIES})
+endif()
+
 if (ENABLE_PERFTOOLS_DEBUG OR ENABLE_PERFTOOLS)
     # Just a no op to prevent CMake from complaining about manually-specified
     # ENABLE_PERFTOOLS_DEBUG or ENABLE_PERFTOOLS not being used if google
@@ -254,6 +263,7 @@ message(
     "\n"
     "\nDataSeries:        ${USE_DATASERIES}"
     "\nElasticSearch:     ${USE_ELASTICSEARCH}"
+    "\nMySQL:             ${USE_MYSQL}"
     "\n"
     "\n================================================================\n"
 )
