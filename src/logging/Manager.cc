@@ -22,6 +22,8 @@
 #include "writers/ElasticSearch.h"
 #endif
 
+#include "writers/MySQL.h"
+
 #ifdef USE_DATASERIES
 #include "writers/DataSeries.h"
 #endif
@@ -47,6 +49,8 @@ WriterDefinition log_writers[] = {
 #ifdef USE_ELASTICSEARCH
 	{ BifEnum::Log::WRITER_ELASTICSEARCH, "ElasticSearch", 0, writer::ElasticSearch::Instantiate },
 #endif
+
+	{ BifEnum::Log::WRITER_MYSQL, "MySQL", 0, writer::MySQL::Instantiate },
 
 #ifdef USE_DATASERIES
 	{ BifEnum::Log::WRITER_DATASERIES, "DataSeries", 0, writer::DataSeries::Instantiate },

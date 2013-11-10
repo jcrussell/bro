@@ -3,6 +3,7 @@
 #include "config.h"
 
 #include <string>
+#include <algorithm>
 #include <errno.h>
 #include <vector>
 
@@ -78,43 +79,43 @@ string MySQL::GetTableType(int arg_type, int arg_subtype) {
   string type;
 
   switch ( arg_type ) {
-  case TYPE_BOOL:
-    type = "boolean";
-    break;
+    case TYPE_BOOL:
+      type = "boolean";
+      break;
 
-  case TYPE_INT:
-  case TYPE_COUNT:
-  case TYPE_COUNTER:
-  case TYPE_PORT: // note that we do not save the protocol at the moment. Just like in the case of the ascii-writer
-    type = "integer";
-    break;
+    case TYPE_INT:
+    case TYPE_COUNT:
+    case TYPE_COUNTER:
+    case TYPE_PORT: // note that we do not save the protocol at the moment. Just like in the case of the ascii-writer
+      type = "integer";
+      break;
 
-  case TYPE_SUBNET:
-  case TYPE_ADDR:
-    type = "text"; // sqlite3 does not have a type for internet addresses
-    break;
+    case TYPE_SUBNET:
+    case TYPE_ADDR:
+      type = "text"; // sqlite3 does not have a type for internet addresses
+      break;
 
-  case TYPE_TIME:
-  case TYPE_INTERVAL:
-  case TYPE_DOUBLE:
-    type = "double precision";
-    break;
+    case TYPE_TIME:
+    case TYPE_INTERVAL:
+    case TYPE_DOUBLE:
+      type = "double precision";
+      break;
 
-  case TYPE_ENUM:
-  case TYPE_STRING:
-  case TYPE_FILE:
-  case TYPE_FUNC:
-    type = "text";
-    break;
+    case TYPE_ENUM:
+    case TYPE_STRING:
+    case TYPE_FILE:
+    case TYPE_FUNC:
+      type = "text";
+      break;
 
-  case TYPE_TABLE:
-  case TYPE_VECTOR:
-    type = "text"; // dirty - but sqlite does not directly support arrays. so - we just roll it into a ","-separated string.
-    break;
+    case TYPE_TABLE:
+    case TYPE_VECTOR:
+      type = "text"; // dirty - but sqlite does not directly support arrays. so - we just roll it into a ","-separated string.
+      break;
 
-  default:
-    Error(Fmt("unsupported field format %d ", arg_type));
-    return ""; // not the cleanest way to abort. But sqlite will complain on create table...
+    default:
+      Error(Fmt("GetTableType, unsupported field format %d ", arg_type));
+      return ""; // not the cleanest way to abort. But sqlite will complain on create table...
   }
 
   return type;
@@ -149,7 +150,10 @@ bool MySQL::DoInit(const WriterInfo& info, int arg_num_fields, const Field* cons
         create += ",\n";
       }
 
-      create += con->escapeString(field->name);
+      string escaped = con->escapeString(field->name);
+      replace(escaped.begin(), escaped.end(), '.', '_');
+
+      create += escaped;
 
       string type = GetTableType(field->type, field->subtype);
       if ( type == "" ) {
@@ -160,10 +164,12 @@ bool MySQL::DoInit(const WriterInfo& info, int arg_num_fields, const Field* cons
       create += " " + type;
     }
 
-    stmt -> execute(create);
+    create += ");";
+
+    stmt->execute(create);
 
     // create the prepared statement that will be re-used forever...
-    string insert = "INSERT INTO " + tablename + " ( ";
+    string insert = "INSERT INTO " + tablename + " (";
     string values = "VALUES (";
 
     for ( unsigned int i = 0; i < num_fields; i++ ) {
@@ -174,7 +180,10 @@ bool MySQL::DoInit(const WriterInfo& info, int arg_num_fields, const Field* cons
 
       values += "?";
 
-      insert += con->escapeString(fields[i]->name);
+      string escaped = con->escapeString(fields[i]->name);
+      replace(escaped.begin(), escaped.end(), '.', '_');
+
+      insert += escaped;
     }
 
     insert += ") " + values + ");";
@@ -184,7 +193,10 @@ bool MySQL::DoInit(const WriterInfo& info, int arg_num_fields, const Field* cons
     delete stmt;
   }
   catch (sql::SQLException &e) {
-    Error(Fmt("Failed to initialize connection to MySQL: %d", e.getErrorCode()));
+    Error(Fmt("Failed to initialize connection to MySQL!"));
+    Error(Fmt("Error: %s", e.what()));
+    Error(Fmt("MySQL Error Code: %d", e.getErrorCode()));
+    Error(Fmt("SQL State: %s", e.getSQLState().c_str()));
     return false;
   }
 
@@ -205,10 +217,10 @@ char* MySQL::FS(const char* format, ...) {
   return buf;
 }
 
-void MySQL::AddParams(Value* val, int pos) {
+int MySQL::AddParams(Value* val, int pos) {
   if ( ! val->present ) {
     prep_stmt->setNull(pos, 0);
-    return;
+    return 0;
   }
 
   string out;
@@ -260,6 +272,32 @@ void MySQL::AddParams(Value* val, int pos) {
       prep_stmt->setString(pos, out);
       break;
 
+    case TYPE_TABLE: {
+      ODesc desc;
+      desc.Clear();
+      desc.EnableEscaping();
+      desc.AddEscapeSequence(set_separator);
+
+      if ( ! val->val.set_val.size ) {
+        desc.Add(empty_field);
+      }
+      else {
+        for ( int j = 0; j < val->val.set_val.size; j++ ) {
+          if ( j > 0 ) {
+            desc.AddRaw(set_separator);
+          }
+
+          io->Describe(&desc, val->val.set_val.vals[j], fields[pos-1]->name);
+        }
+      }
+
+      desc.RemoveEscapeSequence(set_separator);
+      out = string((char*)desc.Bytes(), desc.Len());
+      prep_stmt->setString(pos, out);
+
+      break;
+    }
+
     case TYPE_VECTOR: {
       ODesc desc;
       desc.Clear();
@@ -275,30 +313,42 @@ void MySQL::AddParams(Value* val, int pos) {
             desc.AddRaw(set_separator);
           }
 
-          io->Describe(&desc, val->val.vector_val.vals[j], fields[pos]->name);
+          io->Describe(&desc, val->val.vector_val.vals[j], fields[pos-1]->name);
         }
       }
 
       desc.RemoveEscapeSequence(set_separator);
       out = string((char*)desc.Bytes(), desc.Len());
       prep_stmt->setString(pos, out);
+      break;
     }
 
     default:
-      Error(Fmt("unsupported field format %d", val->type));
+      Error(Fmt("AddParams: unsupported field format %d", val->type));
+      return 1;
   }
+
+  return 0;
 }
 
 bool MySQL::DoWrite(int num_fields, const Field* const * fields, Value** vals) {
   // bind parameters
   for ( int i = 0; i < num_fields; i++ ) {
-    AddParams(vals[i], i+1);
+    if(AddParams(vals[i], i+1)) {
+      Error(Fmt("Unable to set param for query: %s", fields[i]->name));
+      return false;
+    }
   }
 
   try {
     prep_stmt->execute();
+    con->commit();
   }
   catch(sql::SQLException &e) {
+    Error(Fmt("Failed to write to MySQL!"));
+    Error(Fmt("Error: %s", e.what()));
+    Error(Fmt("MySQL Error Code: %d", e.getErrorCode()));
+    Error(Fmt("SQL State: %s", e.getSQLState().c_str()));
     return false;
   }
 

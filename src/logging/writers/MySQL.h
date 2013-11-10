@@ -40,7 +40,7 @@ protected:
   virtual bool DoHeartbeat(double network_time, double current_time)  { return true; }
 
 private:
-  void AddParams(threading::Value* val, int pos);
+  int AddParams(threading::Value* val, int pos);
   string GetTableType(int, int);
   char* FS(const char* format, ...);
 
